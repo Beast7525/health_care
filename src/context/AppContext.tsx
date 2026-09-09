@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { 
   PageType, 
   MedicalRecord, 
@@ -16,12 +16,15 @@ import {
   INITIAL_DOCTOR_QUESTIONS, 
   INITIAL_QA_MESSAGES 
 } from '../data/mockData';
+import { apiClient } from '../api/client';
 
 interface AppContextType {
   currentPage: PageType;
   setCurrentPage: (page: PageType) => void;
   userProfile: UserProfile;
   setUserProfile: React.Dispatch<React.SetStateAction<UserProfile>>;
+  
+  dbStatus: 'connected' | 'fallback' | 'checking';
   
   healthConcern: HealthConcern;
   setHealthConcern: React.Dispatch<React.SetStateAction<HealthConcern>>;
@@ -51,6 +54,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<PageType>('landing');
+  const [dbStatus, setDbStatus] = useState<'connected' | 'fallback' | 'checking'>('checking');
   
   const [userProfile, setUserProfile] = useState<UserProfile>({
     name: 'Alex Morgan',
@@ -76,6 +80,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [doctorQuestions, setDoctorQuestions] = useState<DoctorQuestion[]>(INITIAL_DOCTOR_QUESTIONS);
   const [qaMessages, setQaMessages] = useState<RecordQAMessage[]>(INITIAL_QA_MESSAGES);
 
+  // Check backend health on mount and fetch initial data from MongoDB if server is online
+  useEffect(() => {
+    async function initBackend() {
+      const health = await apiClient.checkHealth();
+      if (health.status === 'ok') {
+        setDbStatus('connected');
+        try {
+          const dbRecords = await apiClient.getRecords();
+          if (dbRecords.length > 0) setRecords(dbRecords);
+
+          const dbTimeline = await apiClient.getTimeline();
+          if (dbTimeline.length > 0) setTimelineEvents(dbTimeline);
+
+          const dbGuidance = await apiClient.getGuidance();
+          if (dbGuidance.length > 0) setGuidanceItems(dbGuidance);
+
+          const dbQuestions = await apiClient.getDoctorQuestions();
+          if (dbQuestions.length > 0) setDoctorQuestions(dbQuestions);
+
+          const dbQA = await apiClient.getQAMessages();
+          if (dbQA.length > 0) setQaMessages(dbQA);
+        } catch (e) {
+          console.warn('Failed to load initial backend collections, using memory data.');
+        }
+      } else {
+        setDbStatus('fallback');
+      }
+    }
+    initBackend();
+  }, []);
+
   const startConversationWithPrompt = (promptText: string) => {
     setHealthConcern(prev => ({
       ...prev,
@@ -85,15 +120,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addRecord = (newRecordData: Omit<MedicalRecord, 'id'>): MedicalRecord => {
-    const newId = `rec-${Date.now()}`;
-    const fullRecord: MedicalRecord = {
-      ...newRecordData,
-      id: newId
-    };
+    const tempId = `rec-${Date.now()}`;
+    const fullRecord: MedicalRecord = { ...newRecordData, id: tempId };
     
     setRecords(prev => [fullRecord, ...prev]);
 
-    // Automatically add a timeline event for uploaded record
+    // Add Timeline Event
     const newEvent: TimelineEvent = {
       id: `evt-${Date.now()}`,
       date: fullRecord.date,
@@ -101,25 +133,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       category: fullRecord.category === 'Lab Results' ? 'Lab Test' : fullRecord.category === 'Imaging' ? 'Imaging' : 'Consultation',
       description: `New medical record uploaded from ${fullRecord.facility}.`,
       keyFindings: [fullRecord.simplifiedSummary.slice(0, 100) + '...'],
-      recordId: newId,
+      recordId: tempId,
       recordTitle: fullRecord.title,
       statusTag: 'Monitored'
     };
-    
     setTimelineEvents(prev => [newEvent, ...prev]);
+
+    // If connected to Node.js backend, sync to MongoDB
+    if (dbStatus === 'connected') {
+      apiClient.addRecord(newRecordData).then(saved => {
+        setRecords(prev => prev.map(r => r.id === tempId ? { ...saved, id: (saved as any)._id || saved.id } : r));
+      }).catch(err => console.error('MongoDB sync error:', err));
+    }
+
     return fullRecord;
   };
 
   const deleteRecord = (id: string) => {
     setRecords(prev => prev.filter(r => r.id !== id));
+    if (dbStatus === 'connected') {
+      apiClient.deleteRecord(id).catch(err => console.error('MongoDB delete error:', err));
+    }
   };
 
   const addTimelineEvent = (eventData: Omit<TimelineEvent, 'id'>) => {
-    const newEvent: TimelineEvent = {
-      ...eventData,
-      id: `evt-${Date.now()}`
-    };
+    const newEvent: TimelineEvent = { ...eventData, id: `evt-${Date.now()}` };
     setTimelineEvents(prev => [newEvent, ...prev]);
+
+    if (dbStatus === 'connected') {
+      apiClient.addTimelineEvent(eventData).catch(err => console.error('MongoDB timeline sync error:', err));
+    }
   };
 
   const addDoctorQuestion = (questionText: string, category: DoctorQuestion['category'], reason: string) => {
@@ -132,10 +175,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isBookmarked: true
     };
     setDoctorQuestions(prev => [newQ, ...prev]);
+
+    if (dbStatus === 'connected') {
+      apiClient.addDoctorQuestion({ questionText, category, reason }).catch(err => console.error('MongoDB doctor Q error:', err));
+    }
   };
 
   const toggleQuestionBookmark = (id: string) => {
     setDoctorQuestions(prev => prev.map(q => q.id === id ? { ...q, isBookmarked: !q.isBookmarked } : q));
+    if (dbStatus === 'connected') {
+      apiClient.toggleDoctorQuestionBookmark(id).catch(err => console.error('MongoDB bookmark error:', err));
+    }
   };
 
   const sendQAPrompt = (userText: string) => {
@@ -151,38 +201,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setQaMessages(prev => [...prev, userMsg]);
 
-    // Simulated RAG Search over uploaded records
+    if (dbStatus === 'connected') {
+      // Sync QA prompt to Express / MongoDB backend
+      apiClient.sendQAPrompt(userText).then(({ aiMsg }) => {
+        setQaMessages(prev => [...prev, aiMsg]);
+      }).catch(() => {
+        // Fallback local response
+        generateLocalQAReply(userText);
+      });
+    } else {
+      generateLocalQAReply(userText);
+    }
+  };
+
+  const generateLocalQAReply = (userText: string) => {
     setTimeout(() => {
       const lower = userText.toLowerCase();
       let replyText = "";
       let citations = [];
 
       if (lower.includes('vitamin') || lower.includes('blood') || lower.includes('lab') || lower.includes('cholesterol') || lower.includes('glucose')) {
-        replyText = "Based on your **Comprehensive Metabolic & Lipid Panel** (Aug 14, 2026), your Vitamin D was 21.4 ng/mL (low reference threshold 30 ng/mL) and Glucose was normal at 98 mg/dL. Your LDL Cholesterol was 118 mg/dL (borderline elevated).";
+        replyText = "Based on your **Comprehensive Metabolic & Lipid Panel** (Aug 14, 2026), your Vitamin D was recorded at **21.4 ng/mL** (low reference 30 ng/mL) and Glucose was normal at 98 mg/dL.";
         citations.push({
           recordId: 'rec-001',
           recordTitle: 'Comprehensive Metabolic & Lipid Panel',
-          snippet: '25-Hydroxy Vitamin D: 21.4 ng/mL [LOW]. Serum Glucose: 98 mg/dL. LDL Cholesterol: 118 mg/dL.',
+          snippet: '25-Hydroxy Vitamin D: 21.4 ng/mL [LOW]. Serum Glucose: 98 mg/dL.',
           date: '2026-08-14'
         });
       } else if (lower.includes('knee') || lower.includes('mri') || lower.includes('meniscus') || lower.includes('leg') || lower.includes('tear')) {
-        replyText = "Your **Right Knee MRI Scan** (Jul 28, 2026) showed a Grade 1 meniscus signal abnormality without any cartilage tears. Ligaments (ACL & PCL) are completely intact. A small amount of joint fluid (effusion) was noted.";
+        replyText = "Your **Right Knee MRI Scan** (Jul 28, 2026) showed a Grade 1 meniscus signal abnormality without any cartilage tears. Ligaments (ACL & PCL) are completely intact.";
         citations.push({
           recordId: 'rec-002',
           recordTitle: 'Right Knee MRI Scan & Radiologist Report',
-          snippet: 'IMPRESSION: Grade I medial meniscus strain/micro-irritation and mild patellar tendinopathy. No complete tear identified.',
+          snippet: 'IMPRESSION: Grade I medial meniscus strain and patellar tendinopathy. No complete tear identified.',
           date: '2026-07-28'
         });
-      } else if (lower.includes('physical therapy') || lower.includes('pt') || lower.includes('exercise') || lower.includes('stretch') || lower.includes('desk')) {
-        replyText = "Your **Physical Therapy Assessment** (Jun 10, 2026) recommends taking a desk break every 45 minutes, strengthening your gluteus medius, and performing active hamstring stretches before prolonged walking.";
-        citations.push({
-          recordId: 'rec-003',
-          recordTitle: 'Physical Therapy Assessment & Discharge Plan',
-          snippet: 'PLAN & GUIDANCE: Ergonomic adjustments (stand up every 45 mins), Quadriceps and hip abduction strengthening exercises.',
-          date: '2026-06-10'
-        });
       } else {
-        replyText = `I analyzed your ${records.length} uploaded health records for "${userText}". Here is what your documented records indicate: your records confirm stable vital signs and no acute surgical tears. Please consult your physician for individualized clinical evaluation.`;
+        replyText = `I analyzed your ${records.length} records for "${userText}". Documented records confirm stable vital signs and no acute surgical tears. Please consult your physician for clinical diagnosis.`;
         if (records.length > 0) {
           citations.push({
             recordId: records[0].id,
@@ -199,7 +254,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         text: replyText,
         timestamp: 'Just now',
         citations,
-        warningNote: 'Reminder: HealthLens AI explains documented record text. It does not provide medical diagnoses or prescribe medications.'
+        warningNote: 'Reminder: HealthLens AI explains documented record text. It does not provide medical diagnoses.'
       };
 
       setQaMessages(prev => [...prev, aiMsg]);
@@ -218,6 +273,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider value={{
       currentPage,
       setCurrentPage,
+      dbStatus,
       userProfile,
       setUserProfile,
       healthConcern,

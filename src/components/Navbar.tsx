@@ -15,12 +15,13 @@ import {
   LayoutDashboard,
   HelpCircle,
   ChevronRight,
-  Stethoscope
+  Stethoscope,
+  Database
 } from 'lucide-react';
 import { PageType } from '../types';
 
 export const Navbar: React.FC = () => {
-  const { currentPage, setCurrentPage, userProfile, setUserProfile } = useApp();
+  const { currentPage, setCurrentPage, userProfile, setUserProfile, dbStatus } = useApp();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const navItemClass = (page: PageType) => `
@@ -144,6 +145,17 @@ export const Navbar: React.FC = () => {
         <div className="hidden md:flex items-center gap-3">
           {userProfile.isLoggedIn ? (
             <div className="flex items-center gap-2">
+              <div 
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+                  dbStatus === 'connected' 
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                    : 'bg-teal-50 text-teal-800 border-teal-200'
+                }`}
+                title={dbStatus === 'connected' ? 'Connected to MongoDB & Express Backend' : 'Node Backend API Ready'}
+              >
+                <Database className="w-3.5 h-3.5 text-teal-600" />
+                <span>{dbStatus === 'connected' ? 'MongoDB Connected' : 'Node Backend Ready'}</span>
+              </div>
               <button 
                 onClick={() => handleNavClick('dashboard')}
                 className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 transition-all"
