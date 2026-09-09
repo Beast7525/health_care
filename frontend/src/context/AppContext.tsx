@@ -212,35 +212,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const generateLocalQAReply = (userText: string) => {
     setTimeout(() => {
       const lower = userText.toLowerCase();
+      
+      // Dynamic search over active uploaded records
+      const matchingRecord = records.find(r => 
+        r.title.toLowerCase().includes(lower) || 
+        r.simplifiedSummary.toLowerCase().includes(lower) || 
+        r.rawText.toLowerCase().includes(lower) ||
+        r.category.toLowerCase().includes(lower)
+      );
+
       let replyText = "";
       let citations = [];
 
-      if (lower.includes('vitamin') || lower.includes('blood') || lower.includes('lab') || lower.includes('cholesterol') || lower.includes('glucose')) {
-        replyText = "Based on your **Comprehensive Metabolic & Lipid Panel** (Aug 14, 2026), your Vitamin D was recorded at **21.4 ng/mL** (low reference 30 ng/mL) and Glucose was normal at 98 mg/dL.";
+      if (matchingRecord) {
+        replyText = `According to your uploaded **${matchingRecord.title}** (${matchingRecord.date}): ${matchingRecord.simplifiedSummary}`;
         citations.push({
-          recordId: 'rec-001',
-          recordTitle: 'Comprehensive Metabolic & Lipid Panel',
-          snippet: '25-Hydroxy Vitamin D: 21.4 ng/mL [LOW]. Serum Glucose: 98 mg/dL.',
-          date: '2026-08-14'
+          recordId: matchingRecord.id,
+          recordTitle: matchingRecord.title,
+          snippet: matchingRecord.simplifiedSummary,
+          date: matchingRecord.date
         });
-      } else if (lower.includes('knee') || lower.includes('mri') || lower.includes('meniscus') || lower.includes('leg') || lower.includes('tear')) {
-        replyText = "Your **Right Knee MRI Scan** (Jul 28, 2026) showed a Grade 1 meniscus signal abnormality without any cartilage tears. Ligaments (ACL & PCL) are completely intact.";
+      } else if (records.length > 0) {
+        // Accurately inform user that query terms are NOT present in their uploaded files!
+        const recListStr = records.map(r => r.title).join(', ');
+        const primaryRec = records[0];
+        replyText = `I searched your uploaded records (**${recListStr}**). Your uploaded documents do **not** mention "${userText}".\n\nFor reference, your primary document **${primaryRec.title}** documents: ${primaryRec.simplifiedSummary}`;
         citations.push({
-          recordId: 'rec-002',
-          recordTitle: 'Right Knee MRI Scan & Radiologist Report',
-          snippet: 'IMPRESSION: Grade I medial meniscus strain and patellar tendinopathy. No complete tear identified.',
-          date: '2026-07-28'
+          recordId: primaryRec.id,
+          recordTitle: primaryRec.title,
+          snippet: primaryRec.simplifiedSummary.slice(0, 150) + '...',
+          date: primaryRec.date
         });
       } else {
-        replyText = `I analyzed your ${records.length} records for "${userText}". Documented records confirm stable vital signs and no acute structural tears. Please consult your physician for clinical diagnosis.`;
-        if (records.length > 0) {
-          citations.push({
-            recordId: records[0].id,
-            recordTitle: records[0].title,
-            snippet: records[0].simplifiedSummary.slice(0, 120) + '...',
-            date: records[0].date
-          });
-        }
+        replyText = `You have not uploaded any medical records yet. Please upload your medical reports in the "My Records" tab so I can analyze them.`;
       }
 
       const aiMsg: RecordQAMessage = {
@@ -249,11 +253,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         text: replyText,
         timestamp: 'Just now',
         citations,
-        warningNote: 'Reminder: HealthLens AI explains documented record text. It does not provide medical diagnoses.'
+        warningNote: 'Reminder: HealthLens AI explains documented record text. It does not provide medical diagnoses or hallucinate unmentioned data.'
       };
 
       setQaMessages(prev => [...prev, aiMsg]);
-    }, 600);
+    }, 500);
   };
 
   const resetDemoData = () => {

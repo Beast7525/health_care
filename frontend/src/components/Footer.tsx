@@ -39,11 +39,11 @@ export const Footer: React.FC = () => {
               </span>
             </div>
             <p className="text-slate-400 text-xs leading-relaxed">
-              Your personal recovery and wellness guidance assistant. Empowering individuals to organize medical records and understand their personal health history with clear, non-diagnostic AI insights.
+              A quieter, clearer place to keep track of your health story and prepare for conversations with the people who care for you.
             </p>
             <div className="flex items-center gap-2 text-xs text-teal-400 font-medium">
               <Shield className="w-4 h-4" />
-              <span>HIPAA-Ready Architecture Concept</span>
+              <span>Built around understanding, not diagnosis</span>
             </div>
           </div>
 
@@ -100,22 +100,15 @@ export const Footer: React.FC = () => {
           </div>
 
           <div className="space-y-3">
-            <h4 className="text-white text-xs font-bold uppercase tracking-wider">Developer Stack (Render Ready)</h4>
+            <h4 className="text-white text-xs font-bold uppercase tracking-wider">A note from us</h4>
             <p className="text-slate-400 text-xs leading-relaxed">
-              Configured for standalone deployment on Render Web Services & Render Static Sites.
+              Your health information deserves care. Use HealthLens as a companion for reflection and preparation, and bring important decisions to a qualified professional.
             </p>
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {['React', 'TypeScript', 'Tailwind', 'Render Ready', 'MongoDB Atlas'].map((tech) => (
-                <span key={tech} className="px-2 py-1 rounded bg-slate-800 text-slate-300 text-[10px] font-mono border border-slate-700">
-                  {tech}
-                </span>
-              ))}
-            </div>
           </div>
         </div>
 
         <div className="pt-6 flex flex-col sm:flex-row items-center justify-between text-slate-400 text-xs gap-4">
-          <p>© {new Date().getFullYear()} HealthLens AI. Designed for Hackathon Demo & Render Deployment.</p>
+          <p>© {new Date().getFullYear()} HealthLens AI. Made to help health conversations feel a little easier.</p>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1 text-slate-400">
               <HeartHandshake className="w-3.5 h-3.5 text-teal-400" /> Patient-First Design

@@ -101,12 +101,14 @@ export const ConversationPage: React.FC = () => {
             <h2 className="text-xl font-bold text-slate-900">2. Contextual details</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-bold uppercase text-slate-600">Duration</label>
-                <select value={duration} onChange={(e) => setDuration(e.target.value)} className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm">
-                  <option value="Less than 3 days">Less than 3 days</option>
-                  <option value="1 to 2 weeks">1 to 2 weeks</option>
-                  <option value="1 month">1 month</option>
-                </select>
+                <label className="text-xs font-bold uppercase text-slate-600">Duration (Enter timeframe)</label>
+                <input 
+                  type="text" 
+                  value={duration} 
+                  onChange={(e) => setDuration(e.target.value)} 
+                  placeholder="e.g. 5 days, 2 weeks, 3 months..." 
+                  className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium focus:ring-2 focus:ring-blue-200" 
+                />
               </div>
               <div>
                 <label className="text-xs font-bold uppercase text-slate-600">Triggers</label>

@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import dns from 'node:dns';
 
 import recordsRouter from './routes/records.js';
 import timelineRouter from './routes/timeline.js';
@@ -12,6 +13,9 @@ import healthConcernRouter from './routes/healthConcern.js';
 import { seedDatabase } from './seed.js';
 
 dotenv.config();
+
+const dnsServers = process.env.DNS_SERVERS?.split(',').map(server => server.trim()).filter(Boolean);
+if (dnsServers?.length) dns.setServers(dnsServers);
 
 const app = express();
 const PORT = process.env.PORT || 5000;

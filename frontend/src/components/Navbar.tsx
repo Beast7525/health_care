@@ -41,14 +41,14 @@ export const Navbar: React.FC = () => {
     <header className="sticky top-0 z-50 glass-panel border-b border-slate-200/80 transition-all duration-300">
       <div className="bg-gradient-to-r from-blue-900 via-slate-900 to-teal-900 text-slate-100 text-xs py-1.5 px-4 text-center flex items-center justify-center gap-2">
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30 text-[10px] uppercase font-bold tracking-wider">
-          <Shield className="w-3 h-3 text-teal-400" /> Non-Diagnostic Safety First
+          <Shield className="w-3 h-3 text-teal-400" /> A gentle safety reminder
         </span>
-        <span className="hidden sm:inline opacity-90">HealthLens AI provides wellness & personal record understanding. Not a doctor or diagnostic tool.</span>
+        <span className="hidden sm:inline opacity-90">HealthLens helps you understand your records, but it cannot diagnose or replace your care team.</span>
         <button 
           onClick={() => handleNavClick('safety')}
           className="underline hover:text-white font-medium ml-1 text-[11px]"
         >
-          Learn Safety Standards &rarr;
+          Read our safety promise &rarr;
         </button>
       </div>
 
@@ -69,12 +69,9 @@ export const Navbar: React.FC = () => {
               <span className="font-extrabold text-xl tracking-tight text-slate-900 group-hover:text-blue-700 transition-colors">
                 HEALTHLENS<span className="text-teal-600 font-bold">.AI</span>
               </span>
-              <span className="px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-800 text-[10px] font-bold uppercase tracking-wider">
-                Hackathon Edition
-              </span>
             </div>
             <p className="text-[10px] text-slate-500 font-medium hidden sm:block">
-              Your Personal Health Journey, Made Understandable
+              A clearer way to care for your health
             </p>
           </div>
         </div>
@@ -90,18 +87,7 @@ export const Navbar: React.FC = () => {
                 <Sparkles className="w-4 h-4 text-teal-600" />
                 <span>Conversation</span>
               </button>
-              <button onClick={() => handleNavClick('records')} className={navItemClass('records')}>
-                <FileText className="w-4 h-4 text-slate-600" />
-                <span>My Records</span>
-              </button>
-              <button onClick={() => handleNavClick('timeline')} className={navItemClass('timeline')}>
-                <Clock className="w-4 h-4 text-cyan-600" />
-                <span>My Timeline</span>
-              </button>
-              <button onClick={() => handleNavClick('guidance')} className={navItemClass('guidance')}>
-                <Compass className="w-4 h-4 text-emerald-600" />
-                <span>My Guidance</span>
-              </button>
+        
               <button onClick={() => handleNavClick('ask_records')} className={navItemClass('ask_records')}>
                 <MessageSquareText className="w-4 h-4 text-indigo-600" />
                 <span>Ask My Records</span>

@@ -109,7 +109,7 @@ export const INITIAL_QA_MESSAGES: RecordQAMessage[] = [
   {
     id: 'msg-1',
     sender: 'ai',
-    text: 'Hello! I am your HealthLens AI Document Assistant powered by MongoDB. Ask me any question about your uploaded records.',
+    text: 'Hello! I am your HealthLens AI Document Assistant. Ask me any question about your uploaded records.',
     timestamp: 'Just now'
   }
 ];
