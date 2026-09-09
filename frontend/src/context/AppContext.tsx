@@ -214,29 +214,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const lower = userText.toLowerCase();
       
       // Dynamic search over active uploaded records
-      const matchingRecord = records.find(r => 
-        r.title.toLowerCase().includes(lower) || 
-        r.simplifiedSummary.toLowerCase().includes(lower) || 
-        r.rawText.toLowerCase().includes(lower) ||
-        r.category.toLowerCase().includes(lower)
-      );
+      const matchingRecord = records.find(r => {
+        const titleMatch = r.title.toLowerCase().includes(lower) || lower.includes(r.title.toLowerCase());
+        const summaryMatch = r.simplifiedSummary.toLowerCase().includes(lower);
+        const textMatch = r.rawText.toLowerCase().includes(lower);
+        const catMatch = r.category.toLowerCase().includes(lower);
+        const labMatch = r.labValues?.some(v => 
+          v.testName.toLowerCase().includes(lower) || lower.includes(v.testName.toLowerCase())
+        );
+        const termMatch = r.decodedTerms?.some(t => 
+          t.term.toLowerCase().includes(lower) || lower.includes(t.term.toLowerCase())
+        );
+        return titleMatch || summaryMatch || textMatch || catMatch || labMatch || termMatch;
+      });
 
       let replyText = "";
       let citations = [];
 
+      const isGeneralDocQuery = lower.includes('picture') || lower.includes('image') || lower.includes('pdf') || lower.includes('report') || lower.includes('record') || lower.includes('show') || lower.includes('what') || lower.includes('analyze') || lower.includes('result') || lower.includes('uploaded');
+
       if (matchingRecord) {
-        replyText = `According to your uploaded **${matchingRecord.title}** (${matchingRecord.date}): ${matchingRecord.simplifiedSummary}`;
+        let detailsStr = matchingRecord.simplifiedSummary;
+        if (matchingRecord.labValues && matchingRecord.labValues.length > 0) {
+          const metricsStr = matchingRecord.labValues.map(v => `${v.testName}: ${v.value} ${v.unit} (${v.status.toUpperCase()})`).join(', ');
+          detailsStr += `\n\nExtracted Parameters: ${metricsStr}`;
+        }
+        replyText = `Analysis of your uploaded **${matchingRecord.title}** (${matchingRecord.category}, ${matchingRecord.date}):\n\n${detailsStr}`;
         citations.push({
           recordId: matchingRecord.id,
           recordTitle: matchingRecord.title,
           snippet: matchingRecord.simplifiedSummary,
           date: matchingRecord.date
         });
+      } else if (isGeneralDocQuery && records.length > 0) {
+        const latestRec = records[0];
+        let detailsStr = latestRec.simplifiedSummary;
+        if (latestRec.labValues && latestRec.labValues.length > 0) {
+          const metricsStr = latestRec.labValues.map(v => `${v.testName}: ${v.value} ${v.unit} (${v.status.toUpperCase()})`).join(', ');
+          detailsStr += `\n\nExtracted Parameters: ${metricsStr}`;
+        }
+        replyText = `Analysis of your uploaded record **${latestRec.title}** (${latestRec.category}, ${latestRec.date}):\n\n${detailsStr}`;
+        citations.push({
+          recordId: latestRec.id,
+          recordTitle: latestRec.title,
+          snippet: latestRec.simplifiedSummary,
+          date: latestRec.date
+        });
       } else if (records.length > 0) {
-        // Accurately inform user that query terms are NOT present in their uploaded files!
         const recListStr = records.map(r => r.title).join(', ');
         const primaryRec = records[0];
-        replyText = `I searched your uploaded records (**${recListStr}**). Your uploaded documents do **not** mention "${userText}".\n\nFor reference, your primary document **${primaryRec.title}** documents: ${primaryRec.simplifiedSummary}`;
+        replyText = `I searched your uploaded records (**${recListStr}**). Your uploaded documents do **not** contain specific mentions of "${userText}".\n\nFor reference, your primary document **${primaryRec.title}** details: ${primaryRec.simplifiedSummary}`;
         citations.push({
           recordId: primaryRec.id,
           recordTitle: primaryRec.title,
@@ -244,7 +271,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           date: primaryRec.date
         });
       } else {
-        replyText = `You have not uploaded any medical records yet. Please upload your medical reports in the "My Records" tab so I can analyze them.`;
+        replyText = `You have not uploaded any medical records yet. Please upload your PDF or image reports in the "My Records" tab so I can analyze them.`;
       }
 
       const aiMsg: RecordQAMessage = {

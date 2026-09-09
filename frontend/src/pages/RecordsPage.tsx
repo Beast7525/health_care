@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import { MedicalRecord, MedicalTerm, LabValue } from '../types';
 
+import { extractTextFromFile, analyzeMedicalText } from '../utils/documentParser';
+
 export const RecordsPage: React.FC = () => {
   const { records, addRecord, deleteRecord, addDoctorQuestion, setCurrentPage } = useApp();
   
@@ -33,6 +35,7 @@ export const RecordsPage: React.FC = () => {
   // Upload Modal State
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isExtractingText, setIsExtractingText] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
   // AI Advice Analysis Modal State
@@ -60,7 +63,7 @@ export const RecordsPage: React.FC = () => {
     return matchesCategory && matchesQuery;
   });
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setUploadedFile(file);
@@ -72,22 +75,27 @@ export const RecordsPage: React.FC = () => {
         setNewTitle(formattedTitle);
       }
 
-      // Read text file directly if plain text, otherwise extract content preview
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        if (content && typeof content === 'string' && content.trim().length > 0 && !content.includes('\u0000')) {
-          setNewText(content.slice(0, 800));
-        } else {
-          setNewText(`PATIENT MEDICAL RECORD INTAKE (${file.name})\nDocument Type: ${formattedTitle}\nFacility: ${newFacility || 'Health Center'}\nFile Size: ${(file.size / 1024 / 1024).toFixed(2)} MB\n\nOCR Extracted Intake Stream:\nRecord evaluated for ${formattedTitle}. Clinical parameters extracted and mapped against diagnostic baseline.`);
-        }
-      };
-      
-      if (file.type.includes('text') || file.name.endsWith('.txt') || file.name.endsWith('.csv')) {
-        reader.readAsText(file);
-      } else {
-        // Read file snippet
-        reader.readAsText(file.slice(0, 1024));
+      // Auto-categorize based on file name if obvious
+      const nameLower = file.name.toLowerCase();
+      if (nameLower.includes('xray') || nameLower.includes('x-ray') || nameLower.includes('mri') || nameLower.includes('scan') || nameLower.includes('ultrasound')) {
+        setNewCategory('Imaging');
+      } else if (nameLower.includes('prescription') || nameLower.includes('rx')) {
+        setNewCategory('Prescription');
+      } else if (nameLower.includes('discharge') || nameLower.includes('summary')) {
+        setNewCategory('Discharge Summary');
+      } else if (nameLower.includes('note') || nameLower.includes('consult')) {
+        setNewCategory('Clinical Notes');
+      }
+
+      setIsExtractingText(true);
+      try {
+        const extracted = await extractTextFromFile(file);
+        setNewText(extracted);
+      } catch (err) {
+        console.error('Error parsing file:', err);
+        setNewText(`PATIENT RECORD INTAKE (${file.name})\nTitle: ${formattedTitle}`);
+      } finally {
+        setIsExtractingText(false);
       }
     }
   };
@@ -99,155 +107,26 @@ export const RecordsPage: React.FC = () => {
     setIsUploading(true);
 
     setTimeout(() => {
-      const fullContent = `${newTitle} ${newText}`.toLowerCase();
-
-      let summary = "";
-      let terms: MedicalTerm[] = [];
-      let labVals: LabValue[] = [];
-      let adviceTips: string[] = [];
-      let doctorQList: string[] = [];
-
-      // 1. Diabetes / Blood Sugar / Glucose
-      if (fullContent.includes('glucose') || fullContent.includes('sugar') || fullContent.includes('a1c') || fullContent.includes('diabetes')) {
-        summary = `Your uploaded report "${newTitle}" details blood glucose and glycemic baseline markers. Results reflect your blood sugar control over recent weeks.`;
-        terms = [
-          { term: 'Fasting Blood Glucose', definition: 'Measures blood sugar levels after an overnight fast to assess metabolic health.', category: 'Lab Metric' },
-          { term: 'HbA1c', definition: 'Average blood sugar levels over the past 2 to 3 months.', category: 'Glycemic Index' }
-        ];
-        labVals = [
-          { testName: 'Fasting Glucose', value: '105', unit: 'mg/dL', referenceRange: '70 - 99', status: 'high' },
-          { testName: 'HbA1c', value: '5.8', unit: '%', referenceRange: '< 5.7', status: 'high' }
-        ];
-        adviceTips = [
-          'Choose complex carbohydrates (oats, quinoa, vegetables) over refined sugars to prevent rapid glycemic spikes.',
-          'Pair carbohydrate meals with lean protein and fiber to smooth post-meal blood sugar curves.',
-          'Maintain regular light post-meal walks (10-15 minutes) to enhance insulin sensitivity.'
-        ];
-        doctorQList = [
-          `What target Fasting Glucose and HbA1c ranges do you advise for my baseline based on this ${newTitle} report?`,
-          `Should I track daily home blood glucose readings, and at what times of day?`
-        ];
-      }
-      // 2. Cardiovascular / Cholesterol / Blood Pressure / ECG
-      else if (fullContent.includes('cholesterol') || fullContent.includes('bp') || fullContent.includes('pressure') || fullContent.includes('cardiac') || fullContent.includes('ecg') || fullContent.includes('lipid')) {
-        summary = `Your uploaded report "${newTitle}" outlines cardiovascular markers and lipid distribution. Values assess heart health and circulatory efficiency.`;
-        terms = [
-          { term: 'LDL Cholesterol', definition: 'Transport protein for cholesterol in blood. Lower levels support vascular health.', category: 'Lipid Metric' },
-          { term: 'Systolic / Diastolic Pressure', definition: 'Pressure in blood vessels during heart contraction and rest.', category: 'Cardiovascular' }
-        ];
-        labVals = [
-          { testName: 'Total Cholesterol', value: '198', unit: 'mg/dL', referenceRange: '< 200', status: 'normal' },
-          { testName: 'LDL Cholesterol', value: '122', unit: 'mg/dL', referenceRange: '< 100', status: 'high' }
-        ];
-        adviceTips = [
-          'Incorporate heart-healthy unsaturated fats (olive oil, avocados, almonds) while limiting saturated trans fats.',
-          'Engage in 30 minutes of moderate aerobic exercise (brisk walking, swimming) 4-5 days per week.',
-          'Keep sodium intake under 2,000 mg daily to support optimal resting blood pressure.'
-        ];
-        doctorQList = [
-          `My ${newTitle} shows LDL cholesterol at 122 mg/dL. Do you suggest dietary modifications or follow-up testing?`,
-          `Are there specific target heart rate zones I should maintain during exercise?`
-        ];
-      }
-      // 3. Thyroid (TSH, T3, T4)
-      else if (fullContent.includes('thyroid') || fullContent.includes('tsh') || fullContent.includes('t3') || fullContent.includes('t4')) {
-        summary = `Your uploaded report "${newTitle}" measures thyroid gland activity (TSH/T3/T4) regulating energy expenditure and metabolism.`;
-        terms = [
-          { term: 'Thyroid Stimulating Hormone (TSH)', definition: 'Pituitary hormone regulating thyroid gland production.', category: 'Endocrine' }
-        ];
-        labVals = [
-          { testName: 'TSH', value: '2.4', unit: 'uIU/mL', referenceRange: '0.4 - 4.0', status: 'normal' }
-        ];
-        adviceTips = [
-          'Ensure consistent intake of dietary trace minerals like iodine (iodized salt, seafood) and selenium (brazil nuts).',
-          'Maintain a stable sleep schedule, as thyroid hormone secretion follows circadian patterns.'
-        ];
-        doctorQList = [
-          `Does my TSH value in this ${newTitle} report align with my current energy level and metabolic health?`
-        ];
-      }
-      // 4. Complete Blood Count (CBC) / Anemia / Iron
-      else if (fullContent.includes('cbc') || fullContent.includes('hemoglobin') || fullContent.includes('iron') || fullContent.includes('anemia') || fullContent.includes('wbc')) {
-        summary = `Your uploaded CBC report "${newTitle}" details red blood cell count, hemoglobin, and white blood cell immune markers.`;
-        terms = [
-          { term: 'Hemoglobin', definition: 'Iron-containing protein in red blood cells that transports oxygen through tissue.', category: 'Hematology' },
-          { term: 'White Blood Cell (WBC)', definition: 'Immune system cells responsible for protecting against infections.', category: 'Immune Marker' }
-        ];
-        labVals = [
-          { testName: 'Hemoglobin', value: '14.1', unit: 'g/dL', referenceRange: '13.5 - 17.5', status: 'normal' },
-          { testName: 'WBC Count', value: '6.5', unit: 'x10^3/uL', referenceRange: '4.5 - 11.0', status: 'normal' }
-        ];
-        adviceTips = [
-          'Include iron-rich foods (spinach, lentils, dark poultry) paired with Vitamin C to optimize oxygen transport.',
-          'Stay well hydrated to maintain optimal blood plasma volume during physical activity.'
-        ];
-        doctorQList = [
-          `Are my red cell indices and hemoglobin levels in this ${newTitle} report within optimal ranges?`
-        ];
-      }
-      // 5. Orthopedic / Spine / Joint / Fracture / X-Ray / MRI
-      else if (fullContent.includes('spine') || fullContent.includes('x-ray') || fullContent.includes('fracture') || fullContent.includes('bone') || fullContent.includes('joint') || fullContent.includes('mri') || fullContent.includes('knee')) {
-        summary = `Your imaging scan "${newTitle}" evaluated musculoskeletal structure. Radiologist impressions confirm structural alignment with minor joint wear noted.`;
-        terms = [
-          { term: 'Radiographic Finding', definition: 'Observations identified on X-ray or imaging scans by a certified radiologist.', category: 'Imaging' },
-          { term: 'Joint Effusion', definition: 'Accumulation of fluid inside joint tissue following physical strain or inflammation.', category: 'Musculoskeletal' }
-        ];
-        adviceTips = [
-          'Perform low-impact mobility exercises (swimming, smooth stationary cycling) to keep joint lubricated.',
-          'Apply ice/cold compress for 15 minutes post-activity if swelling or tightness occurs.',
-          'Maintain neutral posture while sleeping with supportive pillows under knees or lumbar spine.'
-        ];
-        doctorQList = [
-          `Based on this ${newTitle} report, what physical therapy exercises or movement limitations do you recommend?`,
-          `Is follow-up diagnostic imaging needed for this joint?`
-        ];
-      }
-      // 6. Prescription / Medication
-      else if (newCategory === 'Prescription' || fullContent.includes('prescription') || fullContent.includes('tablet') || fullContent.includes('mg') || fullContent.includes('dose')) {
-        summary = `Your prescription document "${newTitle}" details recommended medication schedule, dosage instructions, and active compounds.`;
-        terms = [
-          { term: 'Prescription Schedule', definition: 'Specific daily timing, food interactions, and interval instructions for medication.', category: 'Pharmacology' }
-        ];
-        adviceTips = [
-          'Set daily phone reminders to take medications at exact consistent times.',
-          'Keep an updated list of all OTC supplements and prescriptions to share with your pharmacist.'
-        ];
-        doctorQList = [
-          `Are there dietary interactions or specific times of day I should take the medication listed in ${newTitle}?`
-        ];
-      }
-      // 7. General Custom Document (Exact Match from User Title / Input)
-      else {
-        summary = `Your document "${newTitle}" was extracted and categorized as ${newCategory}. Documented findings outline stable clinical indicators for ${newTitle}.`;
-        terms = [
-          { term: 'Document Synthesis', definition: 'Processing medical text into structured takeaways without altered context.', category: 'Record Intake' }
-        ];
-        adviceTips = [
-          `Review the documented findings for ${newTitle} and track any changes in your symptoms over time.`,
-          `Keep this digital record saved in your HealthLens AI portal for easy reference during clinical visits.`
-        ];
-        doctorQList = [
-          `What are the key takeaways from this ${newTitle} record that we should monitor going forward?`
-        ];
-      }
+      // Analyze text dynamically using documentParser engine
+      const analysis = analyzeMedicalText(newText, newTitle, newCategory);
 
       const createdRecord = addRecord({
         title: newTitle,
         category: newCategory,
         date: newDate,
-        facility: newFacility || 'City Medical Facility',
+        facility: newFacility || 'City Health Medical Center',
         doctorName: newDoctor || 'Dr. Attending Physician',
-        fileSize: uploadedFile ? `${(uploadedFile.size / 1024 / 1024).toFixed(1)} MB` : '1.5 MB',
+        fileSize: uploadedFile ? `${(uploadedFile.size / 1024 / 1024).toFixed(1)} MB` : '1.2 MB',
         fileType: uploadedFile?.name.endsWith('.pdf') ? 'pdf' : 'png',
-        rawText: newText || `PATIENT RECORD - ${newTitle.toUpperCase()}\nFacility: ${newFacility || 'Medical Center'}\nDate: ${newDate}\nStatus: Verified document structure via HealthLens OCR engine.`,
-        simplifiedSummary: summary,
-        decodedTerms: terms,
-        labValues: labVals
+        rawText: newText || `PATIENT RECORD - ${newTitle.toUpperCase()}\nFacility: ${newFacility || 'Medical Center'}\nDate: ${newDate}\nProcessed via HealthLens OCR engine.`,
+        simplifiedSummary: analysis.simplifiedSummary,
+        decodedTerms: analysis.decodedTerms,
+        labValues: analysis.labValues
       });
 
       // Save doctor questions automatically into Doctor Checklist
-      doctorQList.forEach(qText => {
-        addDoctorQuestion(qText, newCategory === 'Lab Results' ? 'Lab Understanding' : 'Recovery Plan', `Generated directly from report "${newTitle}"`);
+      analysis.doctorQuestions.forEach(qText => {
+        addDoctorQuestion(qText, newCategory === 'Lab Results' ? 'Lab Understanding' : 'Recovery Plan', `Generated from uploaded report "${newTitle}"`);
       });
 
       setIsUploading(false);
@@ -263,10 +142,10 @@ export const RecordsPage: React.FC = () => {
       // Open Analysis & Advice Modal matching THIS EXACT DOCUMENT
       setAnalysisResultModal({
         record: createdRecord,
-        adviceTips,
-        doctorQuestions: doctorQList
+        adviceTips: analysis.adviceTips,
+        doctorQuestions: analysis.doctorQuestions
       });
-    }, 700);
+    }, 600);
   };
 
   return (

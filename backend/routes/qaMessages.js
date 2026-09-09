@@ -27,44 +27,68 @@ router.post('/', async (req, res) => {
     });
     await userMsg.save();
 
-    const allRecords = await Record.find();
+    const allRecords = await Record.find().sort({ createdAt: -1 });
     const lower = text.toLowerCase();
     
     let replyText = "";
     let citations = [];
 
-    if (lower.includes('vitamin') || lower.includes('blood') || lower.includes('lab') || lower.includes('cholesterol') || lower.includes('glucose')) {
-      const bloodRecord = allRecords.find(r => r.category === 'Lab Results') || allRecords[0];
-      replyText = `Based on your **${bloodRecord ? bloodRecord.title : 'Comprehensive Metabolic Panel'}**, your 25-Hydroxy Vitamin D level was recorded at 21.4 ng/mL (low). Glucose was normal at 98 mg/dL and LDL Cholesterol was 118 mg/dL.`;
-      if (bloodRecord) {
-        citations.push({
-          recordId: bloodRecord._id.toString(),
-          recordTitle: bloodRecord.title,
-          snippet: bloodRecord.simplifiedSummary || '25-Hydroxy Vitamin D: 21.4 ng/mL [LOW]',
-          date: bloodRecord.date
-        });
+    // Dynamic database search over active records
+    const matchingRecord = allRecords.find(r => {
+      const titleMatch = r.title && (r.title.toLowerCase().includes(lower) || lower.includes(r.title.toLowerCase()));
+      const summaryMatch = r.simplifiedSummary && r.simplifiedSummary.toLowerCase().includes(lower);
+      const textMatch = r.rawText && r.rawText.toLowerCase().includes(lower);
+      const catMatch = r.category && r.category.toLowerCase().includes(lower);
+      const labMatch = r.labValues && r.labValues.some(v => 
+        v.testName.toLowerCase().includes(lower) || lower.includes(v.testName.toLowerCase())
+      );
+      const termMatch = r.decodedTerms && r.decodedTerms.some(t => 
+        t.term.toLowerCase().includes(lower) || lower.includes(t.term.toLowerCase())
+      );
+      return titleMatch || summaryMatch || textMatch || catMatch || labMatch || termMatch;
+    });
+
+    const isGeneralDocQuery = lower.includes('picture') || lower.includes('image') || lower.includes('pdf') || lower.includes('report') || lower.includes('record') || lower.includes('show') || lower.includes('what') || lower.includes('analyze') || lower.includes('result') || lower.includes('uploaded');
+
+    if (matchingRecord) {
+      let detailsStr = matchingRecord.simplifiedSummary;
+      if (matchingRecord.labValues && matchingRecord.labValues.length > 0) {
+        const metricsStr = matchingRecord.labValues.map(v => `${v.testName}: ${v.value} ${v.unit} (${v.status.toUpperCase()})`).join(', ');
+        detailsStr += `\n\nExtracted Parameters: ${metricsStr}`;
       }
-    } else if (lower.includes('knee') || lower.includes('mri') || lower.includes('meniscus') || lower.includes('leg') || lower.includes('tear')) {
-      const mriRecord = allRecords.find(r => r.category === 'Imaging') || allRecords[0];
-      replyText = `Your **${mriRecord ? mriRecord.title : 'Right Knee MRI Scan'}** confirmed Grade 1 medial meniscus micro-irritation and patellar tendinopathy. No complete cartilage or ACL tears were identified.`;
-      if (mriRecord) {
-        citations.push({
-          recordId: mriRecord._id.toString(),
-          recordTitle: mriRecord.title,
-          snippet: mriRecord.simplifiedSummary || 'Grade I medial meniscus strain and patellar tendinopathy. No complete tear identified.',
-          date: mriRecord.date
-        });
+      replyText = `Analysis of your uploaded **${matchingRecord.title}** (${matchingRecord.category}, ${matchingRecord.date}):\n\n${detailsStr}`;
+      citations.push({
+        recordId: matchingRecord._id.toString(),
+        recordTitle: matchingRecord.title,
+        snippet: matchingRecord.simplifiedSummary,
+        date: matchingRecord.date
+      });
+    } else if (isGeneralDocQuery && allRecords.length > 0) {
+      const latestRec = allRecords[0];
+      let detailsStr = latestRec.simplifiedSummary;
+      if (latestRec.labValues && latestRec.labValues.length > 0) {
+        const metricsStr = latestRec.labValues.map(v => `${v.testName}: ${v.value} ${v.unit} (${v.status.toUpperCase()})`).join(', ');
+        detailsStr += `\n\nExtracted Parameters: ${metricsStr}`;
       }
+      replyText = `Analysis of your uploaded record **${latestRec.title}** (${latestRec.category}, ${latestRec.date}):\n\n${detailsStr}`;
+      citations.push({
+        recordId: latestRec._id.toString(),
+        recordTitle: latestRec.title,
+        snippet: latestRec.simplifiedSummary,
+        date: latestRec.date
+      });
+    } else if (allRecords.length > 0) {
+      const recListStr = allRecords.map(r => r.title).join(', ');
+      const primaryRec = allRecords[0];
+      replyText = `I searched your MongoDB records (**${recListStr}**). Your uploaded documents do **not** contain specific mentions of "${text}".\n\nFor reference, your primary document **${primaryRec.title}** details: ${primaryRec.simplifiedSummary}`;
+      citations.push({
+        recordId: primaryRec._id.toString(),
+        recordTitle: primaryRec.title,
+        snippet: primaryRec.simplifiedSummary.slice(0, 150) + '...',
+        date: primaryRec.date
+      });
     } else {
-      replyText = `I analyzed your ${allRecords.length} records stored in MongoDB regarding "${text}". Your documented records indicate stable vital parameters without acute structural tears. Please consult your physician for clinical diagnosis.`;
-      if (allRecords.length > 0) {
-        citations.push({
-          recordId: allRecords[0]._id.toString(),
-          recordTitle: allRecords[0].title,
-          snippet: allRecords[0].simplifiedSummary.slice(0, 120) + '...',
-          date: allRecords[0].date
-        });
-      }
+      replyText = `You have not uploaded any medical records yet. Please upload your PDF or image reports in the "My Records" tab so I can analyze them.`;
     }
 
     const aiMsg = new QAMessage({
