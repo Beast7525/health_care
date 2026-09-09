@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { apiClient } from '../api/client';
 import { 
   FileText, 
   Upload, 
@@ -26,7 +27,7 @@ import { MedicalRecord, MedicalTerm, LabValue } from '../types';
 import { extractTextFromFile, analyzeMedicalText } from '../utils/documentParser';
 
 export const RecordsPage: React.FC = () => {
-  const { records, addRecord, deleteRecord, addDoctorQuestion, setCurrentPage } = useApp();
+  const { records, addRecord, addSavedRecord, deleteRecord, addDoctorQuestion, setCurrentPage } = useApp();
   
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -87,65 +88,79 @@ export const RecordsPage: React.FC = () => {
         setNewCategory('Clinical Notes');
       }
 
-      setIsExtractingText(true);
-      try {
-        const extracted = await extractTextFromFile(file);
-        setNewText(extracted);
-      } catch (err) {
-        console.error('Error parsing file:', err);
-        setNewText(`PATIENT RECORD INTAKE (${file.name})\nTitle: ${formattedTitle}`);
-      } finally {
-        setIsExtractingText(false);
+      if (file.type.startsWith('text/')) {
+        setIsExtractingText(true);
+        try {
+          setNewText(await extractTextFromFile(file));
+        } catch (err) {
+          console.error('Error reading text file:', err);
+          setNewText('');
+        } finally {
+          setIsExtractingText(false);
+        }
+      } else {
+        setNewText('');
       }
     }
   };
 
-  const handleUploadSubmit = (e: React.FormEvent) => {
+  const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
 
     setIsUploading(true);
 
-    setTimeout(() => {
-      // Analyze text dynamically using documentParser engine
-      const analysis = analyzeMedicalText(newText, newTitle, newCategory);
+    try {
+      if (uploadedFile) {
+        const result = await apiClient.analyzeRecord(uploadedFile, {
+          title: newTitle,
+          category: newCategory,
+          date: newDate,
+          facility: newFacility,
+          doctorName: newDoctor
+        });
+        const createdRecord: MedicalRecord = {
+          ...result.record,
+          id: result.record.id || result.record._id || `rec-${Date.now()}`
+        };
+        addSavedRecord(createdRecord);
+        result.doctorQuestions.forEach(qText => {
+          addDoctorQuestion(qText, newCategory === 'Lab Results' ? 'Lab Understanding' : 'Recovery Plan', `Generated from uploaded report "${newTitle}"`);
+        });
+        setAnalysisResultModal({ record: createdRecord, adviceTips: result.adviceTips, doctorQuestions: result.doctorQuestions });
+      } else {
+        const analysis = analyzeMedicalText(newText, newTitle, newCategory);
+        const createdRecord = addRecord({
+          title: newTitle,
+          category: newCategory,
+          date: newDate,
+          facility: newFacility || 'City Health Medical Center',
+          doctorName: newDoctor || 'Dr. Attending Physician',
+          fileSize: '1.2 MB',
+          fileType: 'png',
+          rawText: newText || `PATIENT RECORD - ${newTitle.toUpperCase()}`,
+          simplifiedSummary: analysis.simplifiedSummary,
+          decodedTerms: analysis.decodedTerms,
+          labValues: analysis.labValues
+        });
+        analysis.doctorQuestions.forEach(qText => {
+          addDoctorQuestion(qText, newCategory === 'Lab Results' ? 'Lab Understanding' : 'Recovery Plan', `Generated from uploaded report "${newTitle}"`);
+        });
+        setAnalysisResultModal({ record: createdRecord, adviceTips: analysis.adviceTips, doctorQuestions: analysis.doctorQuestions });
+      }
 
-      const createdRecord = addRecord({
-        title: newTitle,
-        category: newCategory,
-        date: newDate,
-        facility: newFacility || 'City Health Medical Center',
-        doctorName: newDoctor || 'Dr. Attending Physician',
-        fileSize: uploadedFile ? `${(uploadedFile.size / 1024 / 1024).toFixed(1)} MB` : '1.2 MB',
-        fileType: uploadedFile?.name.endsWith('.pdf') ? 'pdf' : 'png',
-        rawText: newText || `PATIENT RECORD - ${newTitle.toUpperCase()}\nFacility: ${newFacility || 'Medical Center'}\nDate: ${newDate}\nProcessed via HealthLens OCR engine.`,
-        simplifiedSummary: analysis.simplifiedSummary,
-        decodedTerms: analysis.decodedTerms,
-        labValues: analysis.labValues
-      });
-
-      // Save doctor questions automatically into Doctor Checklist
-      analysis.doctorQuestions.forEach(qText => {
-        addDoctorQuestion(qText, newCategory === 'Lab Results' ? 'Lab Understanding' : 'Recovery Plan', `Generated from uploaded report "${newTitle}"`);
-      });
-
-      setIsUploading(false);
       setShowUploadModal(false);
-      
-      // Reset form
       setUploadedFile(null);
       setNewTitle('');
       setNewFacility('');
       setNewDoctor('');
       setNewText('');
-
-      // Open Analysis & Advice Modal matching THIS EXACT DOCUMENT
-      setAnalysisResultModal({
-        record: createdRecord,
-        adviceTips: analysis.adviceTips,
-        doctorQuestions: analysis.doctorQuestions
-      });
-    }, 600);
+    } catch (error) {
+      console.error('Upload analysis failed:', error);
+      window.alert(error instanceof Error ? error.message : 'The document could not be analyzed.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (

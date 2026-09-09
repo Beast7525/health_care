@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Anatomical Heart</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000}
+  canvas{display:block}
+</style>
+</head>
+<body>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x000610, 0.08);
+
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(4.0, 2.0, 5.5);
+camera.lookAt(0, 0.3, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.5, 0.25
+);
+composer.addPass(bloom);
+
+/* ── colours ── */
+const C = {
+  deep:     0x001020,
+  body:     0x003060,
+  mid:      0x005599,
+  bright:   0x0099cc,
+  glow:     0x00ccff,
+  edge:     0x00eeff,
+  white:    0x88ddff,
+  vessel:   0x002040,
+  vein:     0x001830,
+  aorta:    0x003a70,
+  coronary: 0x00bbee,
+};
+
+/* ── materials ── */
+function bodyMat(extra = {}) {
+  return new THREE.MeshPhysicalMaterial({
+    color: C.body,
+    emissive: new THREE.Color(0x002244),
+    emissiveIntensity: 0.35,
+    roughness: 0.38,
+    metalness: 0.08,
+    clearcoat: 0.4,
+    clearcoatRoughness: 0.25,
+    ...extra,
+  });
+}
+function darkMat(extra = {}) {
+  return new THREE.MeshPhysicalMaterial({
+    color: C.deep,
+    emissive: new THREE.Color(0x001122),
+    emissiveIntensity: 0.3,
+    roughness: 0.55,
+    metalness: 0.05,
+    ...extra,
+  });
+}
+function vesselMat(extra = {}) {
+  return new THREE.MeshPhysicalMaterial({
+    color: C.vessel,
+    emissive: new THREE.Color(0x001a33),
+    emissiveIntensity: 0.5,
+    roughness: 0.4,
+    metalness: 0.05,
+    ...extra,
+  });
+}
+function glowMat(extra = {}) {
+  return new THREE.MeshPhysicalMaterial({
+    color: C.glow,
+    emissive: new THREE.Color(C.glow),
+    emissiveIntensity: 1.5,
+    roughness: 0.15,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.7,
+    ...extra,
+  });
+}
+
+/* ── helper: scale a sphere to make a prolate/oblate ellipsoid ── */
+function makeEllipsoid(rx, ry, rz, seg = 48, mat) {
+  const geo = new THREE.SphereGeometry(1, seg, seg);
+  geo.scale(rx, ry, rz);
+  return new THREE.Mesh(geo, mat);
+}
+
+/* ── helper: tube along curve ── */
+function makeTube(pts, radius, radSeg = 12, seg = 32, closed = false, mat) {
+  const curve = new THREE.CatmullRomCurve3(
+    pts.map(p => new THREE.Vector3(...p)), closed, 'catmullrom', 0.5
+  );
+  const geo = new THREE.TubeGeometry(curve, seg, radius, radSeg, closed);
+  return new THREE.Mesh(geo, mat);
+}
+
+/* ======================================================================
+   ANATOMICAL HEART BUILDER
+   All positions in "heart units" ≈ roughly 1 unit ≈ 3 cm
+   ====================================================================== */
+function buildHeart() {
+  const G = new THREE.Group();
+
+  /* ── 1. LEFT VENTRICLE ──
+     Conical shape, thick wall, apex points inferior-anterior-left.
+     Created by deforming a sphere so it's taller on the left, 
+     narrower at the apex. */
+  {
+    const geo = new THREE.SphereGeometry(1, 64, 64);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      // elongate vertically
+      y *= 1.35;
+      // taper toward apex (y < 0): shrink x and z
+      const taper = y < 0 ? 1.0 - 0.45 * Math.pow(-y / 1.35, 1.6) : 1.0;
+      x *= taper * 0.78;
+      z *= taper * 0.85;
+      // shift center left slightly
+      x -= 0.15;
+      // flatten the top a bit (base)
+      if (y > 0.8) {
+        y = 0.8 + (y - 0.8) * 0.6;
+      }
+      pos.setXYZ(i, x, y, z);
+    }
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, bodyMat());
+    m.position.set(0, 0.1, 0.05);
+    m.name = 'leftVentricle';
+    G.add(m);
+  }
+
+  /* ── 2. RIGHT VENTRICLE ──
+     Crescent-shaped, wraps around the anterior right side of the LV.
+     Thinner-walled. */
+  {
+    const geo = new THREE.SphereGeometry(1, 48, 48);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      y *= 1.15;
+      x *= 0.65;
+      z *= 0.72;
+      // shift right and forward
+      x += 0.55;
+      z += 0.15;
+      // flatten back side (where it contacts LV)
+      if (x < 0.1 && z < 0) {
+        x = 0.1 + (x - 0.1) * 0.3;
+      }
+      // truncate top (does not extend as high as LV)
+      if (y > 0.65) {
+        y = 0.65 + (y - 0.65) * 0.35;
+      }
+      pos.setXYZ(i, x, y, z);
+    }
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, bodyMat({ color: C.mid, emissiveIntensity: 0.3 }));
+    m.position.set(-0.1, -0.05, 0);
+    m.name = 'rightVentricle';
+    G.add(m);
+  }
+
+  /* ── 3. LEFT ATRIUM ──
+     Smooth, rounded, posterior-superior chamber. Receives pulmonary veins. */
+  {
+    const geo = new THREE.SphereGeometry(1, 48, 48);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      y *= 0.65;
+      x *= 0.7;
+      z *= 0.65;
+      // shift posterior and left
+      x -= 0.15;
+      z -= 0.55;
+      // flatten front
+      if (z > 0.2) z = 0.2 + (z - 0.2) * 0.4;
+      pos.setXYZ(i, x, y, z);
+    }
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, bodyMat({ color: C.mid, emissiveIntensity: 0.28 }));
+    m.position.set(0.05, 1.0, 0.15);
+    m.name = 'leftAtrium';
+    G.add(m);
+  }
+
+  /* ── 4. RIGHT ATRIUM ──
+     Receives SVC and IVC. Smooth-walled externally. */
+  {
+    const geo = new THREE.SphereGeometry(1, 48, 48);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      y *= 0.72;
+      x *= 0.55;
+      z *= 0.6;
+      // shift right, superior
+      x += 0.55;
+      z -= 0.1;
+      // flatten left side (contacts other chambers)
+      if (x < 0.2) x = 0.2 + (x - 0.2) * 0.3;
+      pos.setXYZ(i, x, y, z);
+    }
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, bodyMat({ color: C.mid, emissiveIntensity: 0.28 }));
+    m.position.set(-0.15, 0.9, 0.1);
+    m.name = 'rightAtrium';
+    G.add(m);
+  }
+
+  /* ── 5. AORTA ──
+     Ascending aorta → arch → descending. Three branches from arch:
+     brachiocephalic trunk, left common carotid, left subclavian. */
+  {
+    // Ascending aorta
+    const ascPath = [
+      [-0.05, 0.85, -0.05],
+      [-0.05, 1.2, -0.08],
+      [-0.08, 1.55, -0.12],
+    ];
+    const asc = makeTube(ascPath, 0.24, 16, 24, false, vesselMat({ emissiveIntensity: 0.55 }));
+    asc.name = 'aortaAscending';
+    G.add(asc);
+
+    // Aortic arch
+    const archPath = [
+      [-0.08, 1.55, -0.12],
+      [-0.15, 1.85, -0.2],
+      [-0.35, 2.0, -0.35],
+      [-0.6, 1.9, -0.45],
+      [-0.75, 1.65, -0.42],
+      [-0.7, 1.3, -0.35],
+    ];
+    const arch = makeTube(archPath, 0.22, 16, 32, false, vesselMat({ emissiveIntensity: 0.5 }));
+    arch.name = 'aortaArch';
+    G.add(arch);
+
+    // Descending thoracic aorta
+    const descPath = [
+      [-0.7, 1.3, -0.35],
+      [-0.65, 0.7, -0.4],
+      [-0.6, 0.0, -0.38],
+      [-0.55, -0.6, -0.35],
+    ];
+    const desc = makeTube(descPath, 0.19, 14, 24, false, vesselMat({ emissiveIntensity: 0.45 }));
+    desc.name = 'aortaDescending';
+    G.add(desc);
+
+    // Brachiocephalic trunk (first branch)
+    const bct = makeTube([
+      [-0.18, 1.82, -0.22],
+      [-0.15, 2.15, -0.25],
+      [-0.1, 2.45, -0.28],
+    ], 0.09, 10, 16, false, vesselMat({ emissiveIntensity: 0.5 }));
+    bct.name = 'brachiocephalic';
+    G.add(bct);
+
+    // Left common carotid
+    const lcc = makeTube([
+      [-0.32, 1.98, -0.33],
+      [-0.3, 2.35, -0.36],
+      [-0.28, 2.7, -0.38],
+    ], 0.075, 10, 16, false, vesselMat({ emissiveIntensity: 0.5 }));
+    lcc.name = 'leftCarotid';
+    G.add(lcc);
+
+    // Left subclavian
+    const lsc = makeTube([
+      [-0.5, 1.92, -0.4],
+      [-0.6, 2.15, -0.48],
+      [-0.8, 2.2, -0.52],
+    ], 0.065, 10, 16, false, vesselMat({ emissiveIntensity: 0.5 }));
+    lsc.name = 'leftSubclavian';
+    G.add(lsc);
+  }
+
+  /* ── 6. PULMONARY TRUNK & ARTERIES ──
+     Exits right ventricle anteriorly, bifurcates into L and R. */
+  {
+    const trunk = makeTube([
+      [0.15, 0.95, 0.2],
+      [0.2, 1.3, 0.18],
+      [0.15, 1.6, 0.1],
+      [0.05, 1.8, -0.02],
+    ], 0.18, 14, 24, false, vesselMat({ emissiveIntensity: 0.55 }));
+    trunk.name = 'pulmonaryTrunk';
+    G.add(trunk);
+
+    // Left pulmonary artery
+    const lpa = makeTube([
+      [0.05, 1.8, -0.02],
+      [-0.15, 1.85, -0.15],
+      [-0.45, 1.75, -0.3],
+      [-0.7, 1.6, -0.45],
+    ], 0.12, 10, 20, false, vesselMat({ emissiveIntensity: 0.5 }));
+    lpa.name = 'leftPulmonaryArtery';
+    G.add(lpa);
+
+    // Right pulmonary artery
+    const rpa = makeTube([
+      [0.05, 1.8, -0.02],
+      [0.3, 1.78, -0.18],
+      [0.55, 1.65, -0.35],
+      [0.7, 1.5, -0.45],
+    ], 0.11, 10, 20, false, vesselMat({ emissiveIntensity: 0.5 }));
+    rpa.name = 'rightPulmonaryArtery';
+    G.add(rpa);
+  }
+
+  /* ── 7. SUPERIOR VENA CAVA ── */
+  {
+    const svc = makeTube([
+      [0.55, 2.5, -0.25],
+      [0.52, 2.0, -0.2],
+      [0.48, 1.5, -0.12],
+      [0.42, 1.1, -0.05],
+    ], 0.14, 12, 20, false, darkMat({ emissiveIntensity: 0.45 }));
+    svc.name = 'svc';
+    G.add(svc);
+  }
+
+  /* ── 8. INFERIOR VENA CAVA ── */
+  {
+    const ivc = makeTube([
+      [0.45, -0.8, -0.15],
+      [0.42, -0.3, -0.1],
+      [0.4, 0.2, -0.05],
+      [0.38, 0.65, 0.0],
+    ], 0.15, 12, 20, false, darkMat({ emissiveIntensity: 0.45 }));
+    ivc.name = 'ivc';
+    G.add(ivc);
+  }
+
+  /* ── 9. PULMONARY VEINS (4 entering left atrium) ── */
+  {
+    // Right superior pulmonary vein
+    const rspv = makeTube([
+      [0.5, 1.4, -0.5],
+      [0.35, 1.2, -0.35],
+      [0.2, 1.05, -0.2],
+    ], 0.065, 8, 12, false, darkMat({ emissiveIntensity: 0.35 }));
+    G.add(rspv);
+
+    // Right inferior pulmonary vein
+    const ripv = makeTube([
+      [0.45, 0.95, -0.55],
+      [0.3, 0.95, -0.35],
+      [0.15, 0.95, -0.18],
+    ], 0.06, 8, 12, false, darkMat({ emissiveIntensity: 0.35 }));
+    G.add(ripv);
+
+    // Left superior pulmonary vein
+    const lspv = makeTube([
+      [-0.55, 1.35, -0.45],
+      [-0.4, 1.15, -0.3],
+      [-0.2, 1.05, -0.18],
+    ], 0.065, 8, 12, false, darkMat({ emissiveIntensity: 0.35 }));
+    G.add(lspv);
+
+    // Left inferior pulmonary vein
+    const lipv = makeTube([
+      [-0.5, 0.9, -0.5],
+      [-0.35, 0.92, -0.32],
+      [-0.15, 0.95, -0.18],
+    ], 0.06, 8, 12, false, darkMat({ emissiveIntensity: 0.35 }));
+    G.add(lipv);
+  }
+
+  /* ── 10. CORONARY ARTERIES ── */
+  {
+    // Left main coronary artery (from aortic root)
+    const lmca = makeTube([
+      [-0.08, 0.9, 0.22],
+      [-0.15, 0.88, 0.35],
+      [-0.25, 0.82, 0.45],
+    ], 0.035, 8, 10, false, glowMat({ emissiveIntensity: 2.5 }));
+    G.add(lmca);
+
+    // Left anterior descending (LAD) — runs in anterior interventricular sulcus
+    const lad = makeTube([
+      [-0.25, 0.82, 0.45],
+      [-0.15, 0.5, 0.65],
+      [-0.05, 0.1, 0.78],
+      [0.02, -0.3, 0.72],
+      [0.05, -0.65, 0.55],
+      [0.03, -0.95, 0.35],
+    ], 0.03, 8, 20, false, glowMat({ emissiveIntensity: 2.8 }));
+    lad.name = 'LAD';
+    G.add(lad);
+
+    // LAD diagonal branches
+    const ladD1 = makeTube([
+      [-0.18, 0.6, 0.55],
+      [-0.35, 0.45, 0.6],
+      [-0.5, 0.3, 0.55],
+    ], 0.015, 6, 8, false, glowMat({ emissiveIntensity: 2.0, opacity: 0.5 }));
+    G.add(ladD1);
+    const ladD2 = makeTube([
+      [-0.05, 0.25, 0.72],
+      [-0.2, 0.1, 0.7],
+      [-0.35, -0.05, 0.62],
+    ], 0.012, 6, 8, false, glowMat({ emissiveIntensity: 2.0, opacity: 0.5 }));
+    G.add(ladD2);
+
+    // Circumflex (LCx) — runs in left AV groove
+    const lcx = makeTube([
+      [-0.25, 0.82, 0.45],
+      [-0.5, 0.78, 0.3],
+      [-0.7, 0.65, 0.0],
+      [-0.78, 0.45, -0.25],
+      [-0.72, 0.2, -0.45],
+    ], 0.028, 8, 16, false, glowMat({ emissiveIntensity: 2.5 }));
+    lcx.name = 'LCx';
+    G.add(lcx);
+
+    // LCx obtuse marginal branches
+    const om1 = makeTube([
+      [-0.62, 0.62, 0.15],
+      [-0.7, 0.35, 0.2],
+      [-0.75, 0.05, 0.15],
+    ], 0.012, 6, 8, false, glowMat({ emissiveIntensity: 2.0, opacity: 0.5 }));
+    G.add(om1);
+    const om2 = makeTube([
+      [-0.72, 0.4, -0.1],
+      [-0.8, 0.15, -0.05],
+      [-0.82, -0.1, -0.1],
+    ], 0.01, 6, 8, false, glowMat({ emissiveIntensity: 2.0, opacity: 0.5 }));
+    G.add(om2);
+
+    // Right coronary artery (RCA) — runs in right AV groove
+    const rca = makeTube([
+      [0.12, 0.9, 0.28],
+      [0.35, 0.82, 0.4],
+      [0.6, 0.65, 0.35],
+      [0.78, 0.42, 0.1],
+      [0.82, 0.15, -0.2],
+      [0.75, -0.1, -0.4],
+      [0.6, -0.3, -0.5],
+      [0.4, -0.45, -0.42],
+    ], 0.032, 8, 24, false, glowMat({ emissiveIntensity: 2.5 }));
+    rca.name = 'RCA';
+    G.add(rca);
+
+    // RCA marginal branch (acute marginal)
+    const ram = makeTube([
+      [0.55, 0.55, 0.42],
+      [0.65, 0.3, 0.5],
+      [0.68, 0.0, 0.45],
+      [0.62, -0.25, 0.35],
+    ], 0.015, 6, 10, false, glowMat({ emissiveIntensity: 2.0, opacity: 0.5 }));
+    G.add(ram);
+
+    // Posterior descending artery (from RCA)
+    const pda = makeTube([
+      [0.4, -0.45, -0.42],
+      [0.2, -0.6, -0.5],
+      [0.0, -0.75, -0.45],
+      [-0.1, -0.9, -0.35],
+    ], 0.02, 6, 12, false, glowMat({ emissiveIntensity: 2.0, opacity: 0.6 }));
+    G.add(pda);
+  }
+
+  /* ── 11. CARDIAC VEINS ── */
+  {
+    // Great cardiac vein (along LAD)
+    const gcv = makeTube([
+      [0.0, -0.8, 0.4],
+      [0.05, -0.5, 0.55],
+      [0.1, -0.15, 0.6],
+      [0.15, 0.2, 0.55],
+      [0.1, 0.55, 0.4],
+      [-0.05, 0.75, 0.2],
+    ], 0.022, 6, 14, false, darkMat({
+      color: C.vein,
+      emissive: new THREE.Color(0x001530),
+      emissiveIntensity: 0.6,
+    }));
+    G.add(gcv);
+
+    // Small cardiac vein (along RCA territory)
+    const scv = makeTube([
+      [0.45, 0.75, 0.5],
+      [0.55, 0.55, 0.55],
+      [0.6, 0.3, 0.5],
+      [0.58, 0.05, 0.4],
+    ], 0.016, 6, 10, false, darkMat({
+      color: C.vein,
+      emissive: new THREE.Color(0x001530),
+      emissiveIntensity: 0.6,
+    }));
+    G.add(scv);
+
+    // Middle cardiac vein (along PDA)
+    const mcv = makeTube([
+      [-0.05, -0.85, -0.3],
+      [0.0, -0.65, -0.35],
+      [0.1, -0.45, -0.38],
+    ], 0.014, 6, 8, false, darkMat({
+      color: C.vein,
+      emissive: new THREE.Color(0x001530),
+      emissiveIntensity: 0.6,
+    }));
+    G.add(mcv);
+  }
+
+  /* ── 12. SURFACE SULCI (grooves) — rendered as subtle dark tubes ── */
+  {
+    // Anterior interventricular sulcus (between LV and RV on front)
+    const aivs = makeTube([
+      [-0.1, 0.7, 0.6],
+      [-0.03, 0.3, 0.78],
+      [0.05, -0.1, 0.82],
+      [0.08, -0.5, 0.65],
+      [0.05, -0.8, 0.42],
+    ], 0.018, 4, 16, false, darkMat({
+      emissiveIntensity: 0.5,
+      transparent: true,
+      opacity: 0.6,
+    }));
+    G.add(aivs);
+
+    // Posterior interventricular sulcus
+    const pivs = makeTube([
+      [0.05, -0.5, -0.55],
+      [0.0, -0.7, -0.6],
+      [-0.05, -0.85, -0.5],
+    ], 0.015, 4, 10, false, darkMat({
+      emissiveIntensity: 0.4,
+      transparent: true,
+      opacity: 0.5,
+    }));
+    G.add(pivs);
+
+    // Left AV groove (coronary sulcus, left side)
+    const lavg = makeTube([
+      [-0.3, 0.7, 0.45],
+      [-0.6, 0.6, 0.15],
+      [-0.75, 0.4, -0.15],
+      [-0.72, 0.15, -0.35],
+    ], 0.018, 4, 14, false, darkMat({
+      emissiveIntensity: 0.5,
+      transparent: true,
+      opacity: 0.5,
+    }));
+    G.add(lavg);
+
+    // Right AV groove
+    const ravg = makeTube([
+      [0.2, 0.7, 0.45],
+      [0.45, 0.6, 0.35],
+      [0.65, 0.4, 0.1],
+      [0.75, 0.15, -0.15],
+    ], 0.018, 4, 14, false, darkMat({
+      emissiveIntensity: 0.5,
+      transparent: true,
+      opacity: 0.5,
+    }));
+    G.add(ravg);
+  }
+
+  /* ── 13. EPICARDIAL FAT (subtle bulges in AV groove & anterior) ── */
+  {
+    const fatMat = darkMat({
+      color: 0x001a2e,
+      emissiveIntensity: 0.4,
+      roughness: 0.6,
+    });
+    // Anterior AV fat pad
+    const fat1 = makeEllipsoid(0.25, 0.12, 0.18, 20, fatMat);
+    fat1.position.set(0.15, 0.78, 0.42);
+    G.add(fat1);
+    // Right AV fat
+    const fat2 = makeEllipsoid(0.2, 0.1, 0.15, 20, fatMat);
+    fat2.position.set(0.5, 0.65, 0.3);
+    G.add(fat2);
+    // Left AV fat
+    const fat3 = makeEllipsoid(0.2, 0.1, 0.15, 20, fatMat);
+    fat3.position.set(-0.45, 0.65, 0.2);
+    G.add(fat3);
+  }
+
+  /* ── 14. CONUS ARTERIOSUS (infundibulum of RV → pulmonary trunk) ── */
+  {
+    const geo = new THREE.SphereGeometry(1, 32, 32);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      y *= 0.5;
+      x *= 0.3;
+      z *= 0.35;
+      pos.setXYZ(i, x, y, z);
+    }
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, bodyMat({ emissiveIntensity: 0.4 }));
+    m.position.set(0.12, 0.9, 0.15);
+    m.name = 'conus';
+    G.add(m);
+  }
+
+  /* ── 15. AORTIC ROOT / SINUSES OF VALSALVA ── */
+  {
+    const geo = new THREE.SphereGeometry(1, 24, 24);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      y *= 0.3;
+      x *= 0.28;
+      z *= 0.28;
+      // create 3 bulges for sinuses
+      const angle = Math.atan2(z, x);
+      const bulge = 1.0 + 0.15 * Math.cos(angle * 3);
+      x *= bulge;
+      z *= bulge;
+      pos.setXYZ(i, x, y, z);
+    }
+    geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, vesselMat({ emissiveIntensity: 0.6 }));
+    m.position.set(-0.05, 0.82, 0.0);
+    m.name = 'aorticRoot';
+    G.add(m);
+  }
+
+  /* ── 16. MITRAL & TRICUSPID ANNULUS (ring shapes) ── */
+  {
+    const ringMat = glowMat({ opacity: 0.15, emissiveIntensity: 0.8 });
+    // Mitral annulus
+    const mitral = new THREE.Mesh(
+      new THREE.TorusGeometry(0.35, 0.015, 8, 32),
+      ringMat
+    );
+    mitral.position.set(-0.05, 0.85, 0.1);
+    mitral.rotation.x = Math.PI * 0.45;
+    mitral.rotation.z = 0.2;
+    G.add(mitral);
+    // Tricuspid annulus
+    const tricuspid = new THREE.Mesh(
+      new THREE.TorusGeometry(0.3, 0.012, 8, 32),
+      ringMat.clone()
+    );
+    tricuspid.position.set(0.2, 0.82, 0.15);
+    tricuspid.rotation.x = Math.PI * 0.4;
+    tricuspid.rotation.z = -0.3;
+    G.add(tricuspid);
+  }
+
+  /* ── 17. PAPILLARY MUSCLE BULGES (visible externally as subtle bumps) ── */
+  {
+    const bumpMat = bodyMat({ emissiveIntensity: 0.45 });
+    const b1 = makeEllipsoid(0.12, 0.22, 0.12, 16, bumpMat);
+    b1.position.set(-0.2, -0.15, 0.5);
+    G.add(b1);
+    const b2 = makeEllipsoid(0.1, 0.2, 0.1, 16, bumpMat);
+    b2.position.set(0.15, -0.1, 0.55);
+    G.add(b2);
+  }
+
+  /* ── 18. TRABECULAE CARNEAE (surface ridges on ventricles) ── */
+  {
+    const ridgeMat = darkMat({
+      emissiveIntensity: 0.45,
+      transparent: true,
+      opacity: 0.55,
+    });
+    // Anterior LV ridges
+    for (let i = 0; i < 5; i++) {
+      const angle = (i / 5) * Math.PI * 0.6 - 0.3;
+      const r = makeTube([
+        [Math.sin(angle) * 0.5 - 0.1, 0.6 - i * 0.28, Math.cos(angle) * 0.7 + 0.15],
+        [Math.sin(angle) * 0.45 - 0.1, 0.3 - i * 0.28, Math.cos(angle) * 0.75 + 0.15],
+      ], 0.012, 4, 6, false, ridgeMat);
+      G.add(r);
+    }
+    // RV ridges
+    for (let i = 0; i < 3; i++) {
+      const r = makeTube([
+        [0.4 + i * 0.05, 0.5 - i * 0.25, 0.55 + i * 0.05],
+        [0.35 + i * 0.05, 0.25 - i * 0.25, 0.6 + i * 0.05],
+      ], 0.01, 4, 6, false, ridgeMat);
+      G.add(r);
+    }
+  }
+
+  /* ── scale ── */
+  G.scale.setScalar(0.72);
+  return G;
+}
+
+const heart = buildHeart();
+heart.position.y = 0.15;
+scene.add(heart);
+
+/* ── LIGHTS ── */
+scene.add(new THREE.AmbientLight(0x001122, 0.35));
+
+const rim1 = new THREE.DirectionalLight(0x00ccff, 2.8);
+rim1.position.set(-5, 4, 5);
+scene.add(rim1);
+
+const rim2 = new THREE.DirectionalLight(0x0055cc, 2.0);
+rim2.position.set(5, -2, 4);
+scene.add(rim2);
+
+const rim3 = new THREE.DirectionalLight(0x00eeff, 1.4);
+rim3.position.set(0, 5, -4);
+scene.add(rim3);
+
+const rim4 = new THREE.DirectionalLight(0x003388, 1.0);
+rim4.position.set(3, -3, -3);
+scene.add(rim4);
+
+const keyLight = new THREE.PointLight(0x00aaff, 3.5, 12);
+keyLight.position.set(0, 0.8, 3);
+scene.add(keyLight);
+
+const backLight = new THREE.PointLight(0x003388, 2.5, 10);
+backLight.position.set(-3, 2, -4);
+scene.add(backLight);
+
+const fillLight = new THREE.PointLight(0x005599, 1.5, 8);
+fillLight.position.set(3, 0, 1);
+scene.add(fillLight);
+
+/* ── PARTICLES ── */
+const PCOUNT = 500;
+const pGeo = new THREE.BufferGeometry();
+const pPos = new Float32Array(PCOUNT * 3);
+const pVel = new Float32Array(PCOUNT * 3);
+const pSiz = new Float32Array(PCOUNT);
+const pOp = new Float32Array(PCOUNT);
+
+for (let i = 0; i < PCOUNT; i++) {
+  const th = Math.random() * Math.PI * 2;
+  const ph = Math.acos(2 * Math.random() - 1);
+  const r = 2.5 + Math.random() * 4;
+  pPos[i*3]   = r * Math.sin(ph) * Math.cos(th);
+  pPos[i*3+1] = r * Math.sin(ph) * Math.sin(th) + 0.15;
+  pPos[i*3+2] = r * Math.cos(ph);
+  pVel[i*3]   = (Math.random()-0.5) * 0.002;
+  pVel[i*3+1] = (Math.random()-0.5) * 0.003 + 0.0008;
+  pVel[i*3+2] = (Math.random()-0.5) * 0.002;
+  pSiz[i] = Math.random() * 2.0 + 0.3;
+  pOp[i] = Math.random() * 0.4 + 0.08;
+}
+
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+pGeo.setAttribute('aSize', new THREE.BufferAttribute(pSiz, 1));
+pGeo.setAttribute('aOpacity', new THREE.BufferAttribute(pOp, 1));
+
+const pMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: `
+    attribute float aSize;
+    attribute float aOpacity;
+    varying float vOp;
+    uniform float uTime;
+    void main(){
+      vOp = aOpacity * (0.4 + 0.6 * sin(uTime * 0.4 + position.x * 1.5 + position.z));
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = aSize * (180.0 / -mv.z);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    varying float vOp;
+    void main(){
+      float d = length(gl_PointCoord - 0.5);
+      if(d > 0.5) discard;
+      float a = vOp * (1.0 - d * 2.0);
+      gl_FragColor = vec4(0.0, 0.75, 1.0, a * 0.35);
+    }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+
+scene.add(new THREE.Points(pGeo, pMat));
+
+/* ── MOUSE ── */
+const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
+document.addEventListener('mousemove', e => {
+  mouse.tx = (e.clientX / window.innerWidth - 0.5) * 2;
+  mouse.ty = (e.clientY / window.innerHeight - 0.5) * 2;
+});
+
+/* ── HEARTBEAT ──
+   Realistic cardiac cycle:
+   Phase 0-0.08  : atrial systole (small atrial contraction)
+   Phase 0.08-0.12: isovolumetric contraction
+   Phase 0.12-0.32: ventricular systole (ejection)
+   Phase 0.32-0.38: isovolumetric relaxation
+   Phase 0.38-0.55: early rapid filling (dicrotic notch)
+   Phase 0.55-0.72: diastasis
+   Phase 0.72-0.82: late diastole (passive)
+   Phase 0.82-1.0 : atrial kick → next cycle
+*/
+const BPM = 65;
+const PERIOD = 60 / BPM;
+
+function heartbeat(time) {
+  const phase = (time % PERIOD) / PERIOD;
+  let scale = 1.0;
+  let glow = 0;
+
+  if (phase < 0.08) {
+    // Atrial contraction — very subtle bump
+    const p = phase / 0.08;
+    scale = 1.0 + 0.008 * Math.sin(p * Math.PI);
+    glow = 0.15 * Math.sin(p * Math.PI);
+  } else if (phase < 0.12) {
+    // Isovolumetric contraction
+    const p = (phase - 0.08) / 0.04;
+    scale = 1.0 + 0.008 - 0.03 * p;
+    glow = 0.15 * (1 - p) + 0.5 * p;
+  } else if (phase < 0.32) {
+    // Ventricular systole — main contraction
+    const p = (phase - 0.12) / 0.2;
+    scale = 1.0 - 0.03 + 0.003 * Math.sin(p * Math.PI);
+    glow = 0.5 + 0.5 * Math.sin(p * Math.PI);
+  } else if (phase < 0.38) {
+    // Isovolumetric relaxation
+    const p = (phase - 0.32) / 0.06;
+    scale = 1.0 - 0.027 + 0.02 * p;
+    glow = 0.5 * (1 - p);
+  } else if (phase < 0.55) {
+    // Early rapid filling (dicrotic)
+    const p = (phase - 0.38) / 0.17;
+    scale = 1.0 - 0.007 + 0.005 * Math.sin(p * Math.PI * 0.7);
+    glow = 0.08 * Math.sin(p * Math.PI);
+  } else {
+    // Diastasis — heart at rest, slowly relaxing
+    const p = (phase - 0.55) / 0.45;
+    scale = 1.0 - 0.002 * p;
+    glow = 0;
+  }
+
+  return { scale, glow };
+}
+
+/* ── ANIMATE ── */
+const clock = new THREE.Clock();
+
+// cache base emissives
+const emissiveMap = new Map();
+heart.traverse(child => {
+  if (child.isMesh && child.material.emissiveIntensity !== undefined) {
+    emissiveMap.set(child.uuid, child.material.emissiveIntensity);
+  }
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  mouse.x += (mouse.tx - mouse.x) * 0.03;
+  mouse.y += (mouse.ty - mouse.y) * 0.03;
+
+  const beat = heartbeat(t);
+
+  // Apply beat to heart
+  heart.scale.setScalar(0.72 * beat.scale);
+  heart.rotation.y = Math.sin(t * 0.12) * 0.06 + mouse.x * 0.12;
+  heart.rotation.x = Math.sin(t * 0.09) * 0.025 + mouse.y * 0.06;
+  heart.rotation.z = Math.sin(t * 0.07) * 0.015;
+  heart.position.y = 0.15 + Math.sin(t * 0.35) * 0.05;
+
+  // Emissive pulse
+  heart.traverse(child => {
+    if (child.isMesh && emissiveMap.has(child.uuid)) {
+      const base = emissiveMap.get(child.uuid);
+      child.material.emissiveIntensity = base * (1.0 + beat.glow * 1.2);
+    }
+  });
+
+  // Bloom pulse
+  bloom.strength = 0.9 + beat.glow * 0.5;
+
+  // Key light intensity pulse
+  keyLight.intensity = 3.0 + beat.glow * 4.0;
+
+  // Particles
+  const pp = pGeo.attributes.position.array;
+  for (let i = 0; i < PCOUNT; i++) {
+    pp[i*3]   += pVel[i*3];
+    pp[i*3+1] += pVel[i*3+1];
+    pp[i*3+2] += pVel[i*3+2];
+    const d = Math.sqrt(pp[i*3]**2 + (pp[i*3+1]-0.15)**2 + pp[i*3+2]**2);
+    if (d > 7) {
+      const th = Math.random() * Math.PI * 2;
+      const ph = Math.acos(2*Math.random()-1);
+      const r = 2.5 + Math.random() * 1.5;
+      pp[i*3]   = r*Math.sin(ph)*Math.cos(th);
+      pp[i*3+1] = r*Math.sin(ph)*Math.sin(th)+0.15;
+      pp[i*3+2] = r*Math.cos(ph);
+    }
+  }
+  pGeo.attributes.position.needsUpdate = true;
+  pMat.uniforms.uTime.value = t;
+
+  composer.render();
+}
+
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

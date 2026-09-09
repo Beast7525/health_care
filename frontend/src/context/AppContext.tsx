@@ -34,6 +34,7 @@ interface AppContextType {
   
   records: MedicalRecord[];
   addRecord: (newRecord: Omit<MedicalRecord, 'id'>) => MedicalRecord;
+  addSavedRecord: (record: MedicalRecord) => void;
   deleteRecord: (id: string) => void;
   
   timelineEvents: TimelineEvent[];
@@ -59,8 +60,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [userProfile, setUserProfile] = useState<UserProfile>({
     name: 'Alex Morgan',
     email: 'alex.morgan@healthlens.ai',
-    isLoggedIn: true,
-    emergencyContact: 'Jane Morgan (Spouse) - 555-0199'
+    isLoggedIn: true
   });
 
   const [heroDraftConcern, setHeroDraftConcern] = useState<string>('I have leg discomfort after hiking...');
@@ -144,6 +144,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     return fullRecord;
+  };
+
+  const addSavedRecord = (record: MedicalRecord) => {
+    setRecords(prev => [record, ...prev.filter(existing => existing.id !== record.id)]);
+    setTimelineEvents(prev => [{
+      id: `evt-${Date.now()}`,
+      date: record.date,
+      title: `${record.title} Uploaded`,
+      category: record.category === 'Lab Results' ? 'Lab Test' : record.category === 'Imaging' ? 'Imaging' : 'Consultation',
+      description: `New medical record uploaded from ${record.facility}.`,
+      keyFindings: [record.simplifiedSummary.slice(0, 100)],
+      recordId: record.id,
+      recordTitle: record.title,
+      statusTag: 'Monitored'
+    }, ...prev]);
   };
 
   const deleteRecord = (id: string) => {
@@ -309,6 +324,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       startConversationWithPrompt,
       records,
       addRecord,
+      addSavedRecord,
       deleteRecord,
       timelineEvents,
       addTimelineEvent,

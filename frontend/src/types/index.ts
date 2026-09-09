@@ -97,5 +97,4 @@ export interface UserProfile {
   name: string;
   email: string;
   isLoggedIn: boolean;
-  emergencyContact: string;
 }

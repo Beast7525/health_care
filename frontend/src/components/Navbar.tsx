@@ -16,7 +16,7 @@ import {
   HelpCircle,
   ChevronRight,
   Stethoscope,
-  Database
+  Database,
 } from 'lucide-react';
 import { PageType } from '../types';
 
@@ -39,19 +39,6 @@ export const Navbar: React.FC = () => {
 
   return (
     <header className="sticky top-0 z-50 glass-panel border-b border-slate-200/80 transition-all duration-300">
-      <div className="bg-gradient-to-r from-blue-900 via-slate-900 to-teal-900 text-slate-100 text-xs py-1.5 px-4 text-center flex items-center justify-center gap-2">
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30 text-[10px] uppercase font-bold tracking-wider">
-          <Shield className="w-3 h-3 text-teal-400" /> A gentle safety reminder
-        </span>
-        <span className="hidden sm:inline opacity-90">HealthLens helps you understand your records, but it cannot diagnose or replace your care team.</span>
-        <button 
-          onClick={() => handleNavClick('safety')}
-          className="underline hover:text-white font-medium ml-1 text-[11px]"
-        >
-          Read our safety promise &rarr;
-        </button>
-      </div>
-
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div 
           onClick={() => handleNavClick('landing')}
@@ -103,12 +90,6 @@ export const Navbar: React.FC = () => {
                 <Home className="w-4 h-4" />
                 <span>Home</span>
               </button>
-              <a href="#how-it-works" onClick={() => setCurrentPage('landing')} className="px-3 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 transition-all">
-                How It Works
-              </a>
-              <a href="#features" onClick={() => setCurrentPage('landing')} className="px-3 py-2 rounded-xl text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 transition-all">
-                Features
-              </a>
               <button onClick={() => handleNavClick('safety')} className={navItemClass('safety')}>
                 <Shield className="w-4 h-4 text-amber-600" />
                 <span>Safety</span>

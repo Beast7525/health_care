@@ -10,6 +10,7 @@ import guidanceRouter from './routes/guidance.js';
 import doctorQuestionsRouter from './routes/doctorQuestions.js';
 import qaMessagesRouter from './routes/qaMessages.js';
 import healthConcernRouter from './routes/healthConcern.js';
+import geminiRouter from './routes/gemini.js';
 import { seedDatabase } from './seed.js';
 
 dotenv.config();
@@ -22,8 +23,9 @@ const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
 const USE_MONGODB = process.env.DATABASE_MODE === 'mongodb' && Boolean(MONGODB_URI);
 
-// CORS configuration for Render frontend deployment
-const allowedOrigins = process.env.CLIENT_URL ? [process.env.CLIENT_URL] : '*';
+// Allow the configured deployment URL and local Vite development ports.
+const configuredOrigins = process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',').map(origin => origin.trim()) : [];
+const allowedOrigins = [...new Set([...configuredOrigins, 'http://localhost:5173', 'http://localhost:5174'])];
 app.use(cors({
   origin: allowedOrigins,
   credentials: true
@@ -38,6 +40,7 @@ app.use('/api/guidance', guidanceRouter);
 app.use('/api/doctor-questions', doctorQuestionsRouter);
 app.use('/api/qa-messages', qaMessagesRouter);
 app.use('/api/health-concern', healthConcernRouter);
+app.use('/api/gemini', geminiRouter);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

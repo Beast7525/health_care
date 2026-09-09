@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Shield, HeartHandshake, AlertTriangle } from 'lucide-react';
+import { Activity, Shield, HeartHandshake } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export const Footer: React.FC = () => {
@@ -8,26 +8,6 @@ export const Footer: React.FC = () => {
   return (
     <footer className="bg-slate-900 text-slate-300 border-t border-slate-800 pt-12 pb-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-10 p-4 rounded-2xl bg-amber-950/50 border border-amber-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="text-amber-200 font-bold text-sm">Medical Emergency Reminder</h4>
-              <p className="text-slate-300 text-xs mt-0.5 max-w-3xl">
-                If you are experiencing severe chest pain, shortness of breath, sudden numbness, or a medical emergency, please call <strong>911</strong> or contact your local emergency response service immediately. Do not rely on AI tools during emergency situations.
-              </p>
-            </div>
-          </div>
-          <button 
-            onClick={() => setCurrentPage('safety')}
-            className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold whitespace-nowrap transition-colors"
-          >
-            Read Safety Policy
-          </button>
-        </div>
-
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 pb-10 border-b border-slate-800">
           <div className="space-y-4 md:col-span-1">
             <div className="flex items-center gap-2.5">

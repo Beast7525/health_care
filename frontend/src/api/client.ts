@@ -32,6 +32,30 @@ export const apiClient = {
     return await res.json();
   },
 
+  async analyzeRecord(file: File, metadata: {
+    title: string;
+    category: MedicalRecord['category'];
+    date: string;
+    facility?: string;
+    doctorName?: string;
+  }): Promise<{ record: MedicalRecord & { _id?: string }; adviceTips: string[]; doctorQuestions: string[] }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    Object.entries(metadata).forEach(([key, value]) => {
+      if (value) formData.append(key, value);
+    });
+
+    const res = await fetch(`${API_BASE_URL}/records/analyze`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to analyze document');
+    }
+    return await res.json();
+  },
+
   async deleteRecord(id: string): Promise<void> {
     await fetch(`${API_BASE_URL}/records/${id}`, { method: 'DELETE' });
   },
@@ -99,6 +123,17 @@ export const apiClient = {
       body: JSON.stringify({ text })
     });
     if (!res.ok) throw new Error('Failed to send QA prompt');
+    return await res.json();
+  },
+
+  // Google Gemini API Chat
+  async sendGeminiChat(prompt: string, contextText?: string): Promise<{ replyText: string; modelUsed: string; isEmergency: boolean }> {
+    const res = await fetch(`${API_BASE_URL}/gemini/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, contextText })
+    });
+    if (!res.ok) throw new Error('Gemini API call failed');
     return await res.json();
   }
 };
